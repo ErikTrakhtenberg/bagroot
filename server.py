@@ -1,55 +1,56 @@
-'Chat Room Connection - Client-To-Client'
-import threading
-import socket
-host = '127.0.0.1'
-port = 59000
-server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-server.bind((host, port))
-server.listen()
+from socket import AF_INET, socket, SOCK_STREAM
+from threading import Thread
 
 
-clients = []
-aliases = []
-
-
-def broadcast(message):
-    for client in clients:
-        client.send(message)
-
-# Function to handle clients'connections
-
-
-def handle_client(client):
+def send_receive_client_message():
     while True:
-        try:
-            message = client.recv(2048)
-            broadcast(message)
-        except:
-            index = clients.index(client)
-            clients.remove(client)
+        client, client_address = SERVER.accept()
+        print("%s:%s has connected." % client_address)
+        addresses[client] = client_address
+        Thread(target=stop_server, args=(client,)).start()
+
+
+def stop_server(client):  # Takes client socket as argument.
+    name = client.recv(BUFSIZ).decode("utf8")
+    welcome = 'Welcome %s! If you ever want to quit, type {quit} to exit.' % name
+    client.send(bytes(welcome, "utf8"))
+    msg = "%s has joined the chat!" % name
+    accept_clients(bytes(msg, "utf8"))
+    clients[client] = name
+
+    while True:
+        msg = client.recv(BUFSIZ)
+        if msg != bytes("{quit}", "utf8"):
+            accept_clients(msg, name + ": ")
+        else:
+            client.send(bytes("{quit}", "utf8"))
             client.close()
-            alias = aliases[index]
-            broadcast(f'{alias} has left the chat room!'.encode('utf-8'))
-            aliases.remove(alias)
+            del clients[client]
+            accept_clients(bytes("%s has left the chat." % name, "utf8"))
             break
-# Main function to receive the clients connection
 
 
-def receive():
-    while True:
-        print('Server is running and listening ...')
-        client, address = server.accept()
-        print(f'connection is established with {str(address)}')
-        client.send('alias?'.encode('utf-8'))
-        alias = client.recv(2048)
-        aliases.append(alias)
-        clients.append(client)
-        print(f'The alias of this client is {alias}'.encode('utf-8'))
-        broadcast(f'{alias} has connected to the chat room'.encode('utf-8'))
-        client.send('you are now connected!'.encode('utf-8'))
-        thread = threading.Thread(target=handle_client, args=(client,))
-        thread.start()
+def accept_clients(msg, prefix=""):  # prefix is for name identification.
+    for sock in clients:
+        sock.send(bytes(prefix, "utf8") + msg)
+
+
+clients = {}
+addresses = {}
+
+HOST = ''
+PORT = 59000
+BUFSIZ = 1024
+ADDR = (HOST, PORT)
+
+SERVER = socket(AF_INET, SOCK_STREAM)
+SERVER.bind(ADDR)
 
 
 if __name__ == "__main__":
-    receive()
+    SERVER.listen(5)
+    print("Waiting for connection...")
+    ACCEPT_THREAD = Thread(target=send_receive_client_message)
+    ACCEPT_THREAD.start()
+    ACCEPT_THREAD.join()
+    SERVER.close()

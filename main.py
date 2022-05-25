@@ -1,5 +1,7 @@
-import threading
+from socket import AF_INET, socket as sc, SOCK_STREAM
 import socket
+from threading import Thread
+import threading
 import subprocess
 from tkinter import *
 import folium
@@ -50,15 +52,16 @@ class Cl:
         send_thread = threading.Thread(target=self.client_send())
         send_thread.start()
 
-
 class MainWindow:
     def __init__(self, master, userID):
         self.master = master
         self.userID = userID
         self.master.geometry("800x360")
         self.master.resizable(0, 9999)
-        self.shareID = 1
         self.UI()
+        self.connect()
+
+
 
     # gets the coordinates of the user
     async def getCoords(self):
@@ -71,7 +74,7 @@ class MainWindow:
         return asyncio.run(self.getCoords())
 
     # generates a folium map html file and runs it
-    def generate_map(self):
+    def generate_map(self,userID):
         try:
             host = socket.gethostbyname("www.google.com")
             socket.create_connection((host, 80), 2)
@@ -82,7 +85,7 @@ class MainWindow:
         location[0] = round(location[0], 6)
         location[1] = round(location[1], 6)
         db = sqlite3.connect('database.db')
-        df = pd.read_sql_query('SELECT * from mapdata WHERE userID =' + str(self.userID[0]), db)
+        df = pd.read_sql_query('SELECT * from mapdata WHERE userID =' + str(userID), db)
         db.close()
         wifi_map = folium.Map(location=location, zoom_start=10, control_scale=True)
         cluster = MarkerCluster(name="cluster").add_to(wifi_map)
@@ -156,13 +159,93 @@ class MainWindow:
         return
 
     def share(self):
-        self.shareUI()
+        self.master.after_cancel(self.sharing)
+        self.top_label.destroy()
+        if not self.filepath:
+            return
+        with open(self.filepath, "w") as output_file:
+            output_file.write(str(self.userID[0]))
+            output_file.seek(0)
+            ms.showinfo('success!', 'sharing successful')
+
+    def sharing(self):
+        confirmation=False
+        if not self.filepath:
+            return
+        with open(self.filepath, "r") as input_file:
+            if str(input_file.read()) != str(self.userID[0]):
+                input_file.seek(0)
+                if str(input_file.read()) != '0':
+                    with open(self.filepath, "r") as input_file:
+                        input_file.seek(0)
+                        self.shareID = int(input_file.read())
+                        input_file.seek(0)
+                        print(int(input_file.read()))
+                        confirmation = True
+                else:
+                    with open(self.filepath, "w") as output_file:
+                        output_file.write("0")
+            if confirmation:
+                with open(self.filepath, "r") as input_file:
+                    my_conn = sqlite3.connect('database.db')
+                    select = 'SELECT username from users WHERE ID= ?'
+                    input_file.seek(0)
+                    self.wifi_list1 = my_conn.execute(select, [int(input_file.read())])
+                    input_file.seek(0)
+                    userID = int(input_file.read())
+                    input_file.seek(0)
+                    temp = str(self.get_share_username())
+                    temp2 = temp.replace("('", "")
+                    temp3 = temp2.replace("[", "")
+                    temp4 = temp3.replace("]", "")
+                    self.share_username = temp4.replace("',)", "")
+                    with open(self.filepath, "w") as output_file:
+                        output_file.write("0")
+                    temp5 = bool(ms.askyesno('list sharing', 'do you want to see ' + str(self.share_username) + "'s wifi list?"))
+                    if temp5:
+                        try:
+                            self.master.after_cancel(self.sharing())
+                        except:
+                            pass
+                        input_file.seek(0)
+                        self.shareUI(userID)
+        self.master.after(1111, self.sharing)
+
+    def connect(self):
+        self.HOST = '127.0.0.1'
+        self.PORT = 59000
+        if not self.PORT:
+            self.PORT = 33000
+        else:
+            self.PORT = int(self.PORT)
+
+        BUFSIZ = 1024
+        self.ADDR = (self.HOST, self.PORT)
+
+        self.client_socket = sc(AF_INET, SOCK_STREAM)
+        self.client_socket.connect(self.ADDR)
+        root.mainloop()
+
+        self.receive_thread = Thread(target=self.receive())
+        self.receive_thread.start()
+
+    def receive(self):
+        """Handles receiving of messages."""
+        while True:
+            try:
+                self.msg = self.client_socket.recv(1024).decode("utf8")
+            except OSError:  # Possibly client has left the chat.
+                break
+
+    def send(self, event=None):  # event is passed by binders.
+        """Handles sending of messages."""
+        self.msg = self.userID
+        self.client_socket.send(bytes(self.msg, "utf8"))
 
     def back(self):
         self.map_button1.destroy()
         self.logout_button1.destroy()
         self.share_button1.destroy()
-        self.entry1.destroy()
         self.top_label1.destroy()
         self.top_row_name1.destroy()
         self.top_row_pass1.destroy()
@@ -175,31 +258,41 @@ class MainWindow:
         select = 'SELECT wifiName,wifiPass,longitude,latitude from mapdata WHERE userID= ?'
         self.wifi_list = my_conn.execute(select, self.userID)
         self.top_label = Label(self.master, text="your wifi list", font='Arial 15 bold underline')
-        self.top_label.grid(row=0, column=2)
-        self.top_row_name = Entry(self.master, width=25, fg='black', bg="#d1d1d1", relief="solid")
+        self.top_label.place(x=240, y=0)
+        self.filepath = "asdf.txt"
+        with open(self.filepath, "w") as output_file:
+            output_file.write("0")
+        self.grid_stabelizer = Label(self.master, text="", font='Arial 15 bold underline')
+        self.grid_stabelizer.grid(row=0, column=0)
+        self.top_row_name = Label(self.master, width=20, fg='black', bg="#d1d1d1", relief="solid", text="name of wifi")
         self.top_row_name.grid(row=1, column=0)
-        self.top_row_name.insert(END, "name of wifi")
-        self.top_row_pass = Entry(self.master, width=25, fg='black', bg="#d1d1d1", relief="solid")
+        self.top_row_pass = Label(self.master, width=20, fg='black', bg="#d1d1d1", relief="solid", text="password")
         self.top_row_pass.grid(row=1, column=1)
-        self.top_row_pass.insert(END, "password")
-        self.top_row_long = Entry(self.master, width=25, fg='black', bg="#d1d1d1", relief="solid")
+        self.top_row_long = Label(self.master, width=20, fg='black', bg="#d1d1d1", relief="solid", text="longitude")
         self.top_row_long.grid(row=1, column=2)
-        self.top_row_long.insert(END, "longitude")
-        self.top_row_lat = Entry(self.master, width=25, fg='black', bg="#d1d1d1", relief="solid")
+        self.top_row_lat = Label(self.master, width=20, fg='black', bg="#d1d1d1", relief="solid", text="latitude")
         self.top_row_lat.grid(row=1, column=3)
-        self.top_row_lat.insert(END, "latitude")
         i = 2  # row value inside the loop
+        global ID1
         for ID in self.wifi_list:
             for j in range(len(ID)):
-                self.entry = Entry(self.master, width=25, fg='black')
-                self.entry.grid(row=i, column=j)
                 if ID[j] is None:
-                    self.entry.insert(END, "No password")
+                    self.label = Label(self.master, width=20, fg='black', text="No password", bg='white', relief="ridge")
+                    self.label.grid(row=i, column=j)
                 else:
-                    self.entry.insert(END, ID[j])
+                    self.label = Label(self.master, width=20, fg='black', text=ID[j], bg='white', relief="ridge")
+                    self.label.grid(row=i, column=j)
             i = i + 1
+            ID1=ID
+
+        for y in range(50):
+            for j in range(len(ID1)):
+                self.label = Label(self.master, width=20, text="", bg='white', relief="ridge")
+                self.label.grid(row=i, column=j)
+            i = i + 1
+
         self.map_button = Button(self.master, text=' generate map ', bd=2, relief="solid", font=("Rubik", 15),
-                                 bg="#2acc53", padx=5, pady=5, width=12, command=lambda: self.generate_map())
+                                 bg="#2acc53", padx=5, pady=5, width=12, command=lambda: self.generate_map(self.userID[0]))
         self.map_button.place(x=640, y=20)
         self.add_button = Button(self.master, text=' add wifi ', bd=2, relief="solid", font=("Rubik", 15),
                                  bg="#34baf7", padx=5, pady=5,
@@ -211,8 +304,10 @@ class MainWindow:
         self.logout_button = Button(self.master, text=' log out ', bd=2, relief="solid", font=("Rubik", 15),
                                     bg="red", padx=5, pady=5, width=12, command=lambda: self.log_out())
         self.logout_button.place(x=640, y=200)
+        self.master.after(1111, self.sharing)
 
-    def shareUI(self):
+    def shareUI(self,userID):
+        print(userID)
         my_conn = sqlite3.connect('database.db')
         select = 'SELECT wifiName,wifiPass,longitude,latitude from mapdata WHERE userID= ?'
         self.wifi_list1 = my_conn.execute(select, [self.shareID])
@@ -221,32 +316,39 @@ class MainWindow:
         self.share_username = temp2.replace("',)", "")
         self.top_label1 = Label(self.master, text=str(self.share_username) + "'s wifi list",
                                 font='Arial 15 bold underline')
-        self.top_label1.grid(row=0, column=2)
-        self.top_row_name1 = Entry(self.master, width=25, fg='black', bg="#d1d1d1", relief="solid")
+        self.top_label1.place(x=240, y=0)
+        self.grid_stabelizer1 = Label(self.master, text="", font='Arial 15 bold underline')
+        self.grid_stabelizer1.grid(row=0, column=0)
+        self.top_row_name1 = Label(self.master, width=20, fg='black', bg="#d1d1d1", relief="solid", text="name of wifi")
         self.top_row_name1.grid(row=1, column=0)
-        self.top_row_name1.insert(END, "name of wifi")
-        self.top_row_pass1 = Entry(self.master, width=25, fg='black', bg="#d1d1d1", relief="solid")
+        self.top_row_pass1 = Label(self.master, width=20, fg='black', bg="#d1d1d1", relief="solid", text="password")
         self.top_row_pass1.grid(row=1, column=1)
-        self.top_row_pass1.insert(END, "password")
-        self.top_row_long1 = Entry(self.master, width=25, fg='black', bg="#d1d1d1", relief="solid")
+        self.top_row_long1 = Label(self.master, width=20, fg='black', bg="#d1d1d1", relief="solid", text="longitude")
         self.top_row_long1.grid(row=1, column=2)
-        self.top_row_long1.insert(END, "longitude")
-        self.top_row_lat1 = Entry(self.master, width=25, fg='black', bg="#d1d1d1", relief="solid")
+        self.top_row_lat1 = Label(self.master, width=20, fg='black', bg="#d1d1d1", relief="solid", text="latitude")
         self.top_row_lat1.grid(row=1, column=3)
-        self.top_row_lat1.insert(END, "latitude")
         i = 2  # row value inside the loop
+        global ID1
         for ID in self.wifi_list1:
             for j in range(len(ID)):
-                self.entry1 = Entry(self.master, width=25, fg='black')
-                self.entry1.grid(row=i, column=j)
                 if ID[j] is None:
-                    self.entry1.insert(END, "No password")
+                    self.label1 = Label(self.master, width=20, fg='black', text="No password", bg='white',
+                                       relief="ridge")
+                    self.label1.grid(row=i, column=j)
                 else:
-                    self.entry1.insert(END, ID[j])
+                    self.label1 = Label(self.master, width=20, fg='black', text=ID[j], bg='white', relief="ridge")
+                    self.label1.grid(row=i, column=j)
+            i = i + 1
+
+        for y in range(50):
+            for j in range(len(ID1)):
+                self.label = Label(self.master, width=20, text="", bg='white', relief="ridge")
+                self.label.grid(row=i, column=j)
             i = i + 1
         self.wifi_list1.close()
+        print(userID)
         self.map_button1 = Button(self.master, text=' generate map ', bd=2, relief="solid", font=("Rubik", 15),
-                                  bg="#2acc53", padx=5, pady=5, width=12, command=lambda: self.generate_map())
+                                  bg="#2acc53", padx=5, pady=5, width=12, command=lambda: self.generate_map(userID))
         self.map_button1.place(x=640, y=20)
         self.share_button1 = Button(self.master, text=' back ', bd=2, relief="solid", font=("Rubik", 15),
                                     bg="white", padx=5, pady=5, width=12, command=lambda: self.back())
@@ -254,6 +356,7 @@ class MainWindow:
         self.logout_button1 = Button(self.master, text=' add wifi ', bd=2, relief="solid", font=("Rubik", 15),
                                      bg="#34baf7", padx=5, pady=5, width=12, state=DISABLED)
         self.logout_button1.place(x=640, y=80)
+        self.master.after_cancel(self.sharing)
 
     def get_share_username(self):
         with sqlite3.connect('database.db') as db:
@@ -311,14 +414,74 @@ class LogReg:
         if c.fetchall():
             ms.showerror('Error!', 'Username Taken Try a Different One.')
         else:
-            ms.showinfo('Success!', 'Account Created!')
             self.back()
             # Create Account
             insert = 'INSERT INTO users(username,password) VALUES(?,?)'
             c.execute(insert, [(self.n_username.get()), (self.n_password.get())])
             db.commit()
+            self.add_wifi(self.get_current_wifi(),self.getID())
+            ms.showinfo('Success!', 'Account Created!')
 
-        # Frame Packing Methods
+
+
+    def add_wifi(self, name_and_password, userID):
+        try:
+            host = socket.gethostbyname("www.google.com")
+            socket.create_connection((host, 80), 2)
+        except:
+            ms.showinfo("Error", "No wifi detected. make sure you're connected to a wifi")
+            return
+        location = self.getLoc()
+        location[0] = round(location[0], 6)
+        location[1] = round(location[1], 6)
+        with sqlite3.connect('database.db') as db:
+            c = db.cursor()
+            insert = 'INSERT INTO mapdata(longitude,latitude,wifiName,wifiPass,userID) VALUES(?,?,?,?,?)'
+            c.execute(insert,
+                        [location[0], location[1], str(name_and_password[0]), str(name_and_password[1]), userID[0]])
+            db.commit()
+        return
+
+    def getID(self):
+        with sqlite3.connect('database.db') as db:
+            c = db.cursor()
+        A = 'Select MAX(ID)from users'
+        B = c.execute(A)
+        return B.fetchone()
+
+
+        # gets the coordinates of the user
+    async def getCoords(self):
+        locator = wdg.Geolocator()
+        pos = await locator.get_geoposition_async()
+        return [pos.coordinate.latitude, pos.coordinate.longitude]
+
+    # converts coordinates into a usable list
+    def getLoc(self):
+        return asyncio.run(self.getCoords())
+
+    def get_current_wifi(self):
+        try:
+            host = socket.gethostbyname("www.google.com")
+            socket.create_connection((host, 80), 2)
+            data = subprocess.check_output(['netsh', 'wlan', 'show', 'profiles']).decode('utf-8').split('\n')
+            wifi = subprocess.check_output(['netsh', 'wlan', 'show', 'interfaces'])
+            h = wifi.decode('utf-8').split('\n')
+            h = [c.split(":")[1][1:-1] for c in h if "SSID" in c]
+            profiles = [i.split(":")[1][1:-1] for i in data if "All User Profile" in i]
+            for i in profiles:
+                results = subprocess.check_output(['netsh', 'wlan', 'show', 'profile', i, 'key=clear']).decode(
+                    'utf-8').split('\n')
+                results = [b.split(":")[1][1:-1] for b in results if "Key Content" in b]
+                if str(h[0]) == str(i):
+                    try:
+                        return [i, results[0]]
+                    except IndexError:
+                        return [i, None]
+
+        except:
+            pass
+        return
 
     def back(self):
         self.username.set('')
@@ -366,8 +529,6 @@ class LogReg:
         self.head = Label(self.master, text='Login to your account', width="25", height="1", font=("Arial", 25, 'bold'),
                           pady=11)
         self.head.pack()
-        # self.backbutton = Button(self.master, text='⟵', relief="flat", font=("Robotto", 13, "bold"), padx=8, pady=3, command=self.runmain)
-        # self.backbutton.place(x=0,y=0) #backbutton to main ERIK DONT FORGET
         self.logf = Frame(self.master, padx=10, pady=10)
         self.username_label = Label(self.logf, text='username: ', font=("Rubik", 20), pady=5, padx=5)
         self.username_label.grid(sticky=W)
@@ -417,16 +578,6 @@ class LogReg:
         self.crf.pack_forget()
         self.login_button.destroy()
         self.master.destroy()
-
-    # def runmain2(self):
-    #     self.head.pack_forget()
-    #     self.backbutton.pack_forget()
-    #     self.logf.pack_forget()
-    #     self.crf.pack_forget()
-    #     self.login_button.destroy()
-    #     self.master.geometry("400x300")
-    #     main2.MainMenu(self.master,self.username.get())
-
 
 # make database and users (if not exists already) table at programme start up
 with sqlite3.connect('database.db') as db:
